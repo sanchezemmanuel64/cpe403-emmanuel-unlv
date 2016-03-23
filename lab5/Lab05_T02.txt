@@ -1,0 +1,54 @@
+//http://screencast.com/t/gsgpNASp3Zkr
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "inc/hw_memmap.h"
+#include "inc/hw_types.h"
+#include "driverlib/debug.h"
+#include "driverlib/sysctl.h"
+#include "driverlib/adc.h"
+#include "driverlib/gpio.h"
+#include "driverlib/interrupt.h"
+#include "driverlib/timer.h"
+
+int main(void)
+{
+	uint32_t ui32ADC0Value[4];			//will store 4 values from FIFO when using sequencer 1
+	volatile uint32_t ui32TempAvg;		//stores average of 4 sampled values
+	volatile uint32_t ui32TempValueC;	//stores temperature in Celsius	
+	volatile uint32_t ui32TempValueF;	//stores temperature in Fahrenheit
+
+	SysCtlClockSet(SYSCTL_SYSDIV_5|SYSCTL_USE_PLL|SYSCTL_OSC_MAIN|SYSCTL_XTAL_16MHZ);	//set clock to 40MHz
+
+	SysCtlPeripheralEnable(SYSCTL_PERIPH_ADC0);		//enable ADC0
+	SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);	//enable port F
+	GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_1);	//Configure pin F1 as output
+
+	ADCSequenceConfigure(ADC0_BASE, 2, ADC_TRIGGER_PROCESSOR, 0);	//configure ADC0, sequencer 2, trigger with processor
+	ADCSequenceStepConfigure(ADC0_BASE, 2, 0, ADC_CTL_TS);			//configure ADC0, sequencer 2, step 0
+	ADCSequenceStepConfigure(ADC0_BASE, 2, 1, ADC_CTL_TS);			//configure ADC0, sequencer 2, step 1
+	ADCSequenceStepConfigure(ADC0_BASE, 2, 2, ADC_CTL_TS);			//configure ADC0, sequencer 2, step 2
+	ADCSequenceStepConfigure(ADC0_BASE,2,3,ADC_CTL_TS|ADC_CTL_IE|ADC_CTL_END); //configure ADC0, sequencer 2, step 3, and finish
+	ADCSequenceEnable(ADC0_BASE, 2); 			//enable ADC0, sequencer 2
+
+	while(1) //infinite loop
+	{
+	   ADCIntClear(ADC0_BASE, 2);			//clear interrupt flag on ADC0 sequencer 2
+	   ADCProcessorTrigger(ADC0_BASE, 2);	//trigger ADC sequencer 2
+
+	   while(!ADCIntStatus(ADC0_BASE, 2, false)) //wait for ADC conversion to finish
+	   {
+	   }
+
+	   ADCSequenceDataGet(ADC0_BASE, 2, ui32ADC0Value);		//get 4 values from sequencer 2 FIFO to buffer
+	   ui32TempAvg = (ui32ADC0Value[0] + ui32ADC0Value[1] + ui32ADC0Value[2] + ui32ADC0Value[3] + 2)/4; //take average of 4 values
+	   ui32TempValueC = (1475 - ((2475 * ui32TempAvg)) / 4096)/10;	//convert temperature to Celsius	
+	   ui32TempValueF = ((ui32TempValueC * 9) + 160) / 5;			//convert temperature to Fahrenheit
+	   ui32TempValueF += 5; 										//calibrate Fahrenheit temperature to be displayed
+
+	   if(ui32TempValueF > 80)									//turn on LED on PF2 if temp is over 80 deg F.
+	   	   GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1, 2);
+	   else
+		   GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1, 0);		//else turn off LED on PF2
+	}
+}
